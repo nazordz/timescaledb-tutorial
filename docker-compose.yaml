@@ -1,0 +1,44 @@
+services:
+  primary:
+    image: timescale/timescaledb-ha:pg16
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - pgdata-primary:/home/postgres/pgdata/data
+      # - ./docker-entrypoint-initdb.d/init-db-primary.sql:/docker-entrypoint-initdb.d/init-database.sql
+      # - ./pg_hba_primary.conf:/etc/pg_hba.conf
+  # replica:
+  #   depends_on:
+  #     primary:
+  #       condition: service_started
+  #   image: postgres:16
+    # command: ["/home/postgres/replica-base-backup.sh"]
+    # command: >
+    #   sh -c  "rm -rf /home/postgres/pgdata/data/* &&
+    #           pg_basebackup -h timescaledb-primary -D /home/postgres/pgdata/data/ -U repuser -vP -W &&
+    #           touch /home/postgres/pgdata/data/standby.signal"
+    # ports:
+    #   - 5433:5432
+    # environment:
+    #   - POSTGRES_PASSWORD=password
+    # volumes:
+    #   - pgdata:/var/lib/postgresql/data
+    #   - ./.pgpass:/home/postgres/.pgpass
+    #   - ./postgresql.conf:/etc/postgresql/postgresql.conf
+    #   - ./pg_hba_replica.conf:/etc/pg_hba.conf
+    #   - ./docker-entrypoint-initdb.d/replica-base-backup.sh:/docker-entrypoint-initdb.d/replica-base-backup.sh:rw
+  grafana:
+    depends_on: 
+      - primary
+    image: grafana/grafana:10.0.0
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    ports:
+      - 3001:3000
+
+volumes:
+  pgdata-primary: 
+  grafana-storage:
+  # pgdata:
