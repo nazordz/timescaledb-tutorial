@@ -1,44 +1,58 @@
+x-postgres-common:
+  &postgres-common
+  image: timescale/timescaledb-ha:pg16
+  user: postgres
+  restart: always
+  healthcheck:
+    test: 'pg_isready -U user --dbname=postgres'
+    interval: 10s
+    timeout: 5s
+    retries: 5
+
 services:
-  primary:
-    image: timescale/timescaledb-ha:pg16
+  postgres_primary:
+    <<: *postgres-common
     ports:
       - 5432:5432
     environment:
-      - POSTGRES_PASSWORD=password
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_DB: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_HOST_AUTH_METHOD: "scram-sha-256\nhost replication all 0.0.0.0/0 md5"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    command: |
+      postgres 
+      -c wal_level=replica 
+      -c hot_standby=on 
+      -c max_wal_senders=10 
+      -c max_replication_slots=10 
+      -c hot_standby_feedback=on
     volumes:
+      - ./00_init.sql:/docker-entrypoint-initdb.d/00_init.sql
       - pgdata-primary:/home/postgres/pgdata/data
-      # - ./docker-entrypoint-initdb.d/init-db-primary.sql:/docker-entrypoint-initdb.d/init-database.sql
-      # - ./pg_hba_primary.conf:/etc/pg_hba.conf
-  # replica:
-  #   depends_on:
-  #     primary:
-  #       condition: service_started
-  #   image: postgres:16
-    # command: ["/home/postgres/replica-base-backup.sh"]
-    # command: >
-    #   sh -c  "rm -rf /home/postgres/pgdata/data/* &&
-    #           pg_basebackup -h timescaledb-primary -D /home/postgres/pgdata/data/ -U repuser -vP -W &&
-    #           touch /home/postgres/pgdata/data/standby.signal"
-    # ports:
-    #   - 5433:5432
-    # environment:
-    #   - POSTGRES_PASSWORD=password
-    # volumes:
-    #   - pgdata:/var/lib/postgresql/data
-    #   - ./.pgpass:/home/postgres/.pgpass
-    #   - ./postgresql.conf:/etc/postgresql/postgresql.conf
-    #   - ./pg_hba_replica.conf:/etc/pg_hba.conf
-    #   - ./docker-entrypoint-initdb.d/replica-base-backup.sh:/docker-entrypoint-initdb.d/replica-base-backup.sh:rw
-  grafana:
-    depends_on: 
-      - primary
-    image: grafana/grafana:10.0.0
-    volumes:
-      - grafana-storage:/var/lib/grafana
-    ports:
-      - 3001:3000
 
+  postgres_replica:
+    <<: *postgres-common
+    ports:
+      - 5433:5432
+    environment:
+      PGUSER: ${REPLICATION_USER:-replicator}
+      PGPASSWORD: ${REPLICATION_PASSWORD:-IeXXYfVDidqH2GW6GBKlxAMc0h5aVFPVk14D}
+    volumes:
+      - pgdata-replica:/home/postgres/pgdata/data
+    command: |
+      bash -c "
+      until pg_basebackup --pgdata=/home/postgres/pgdata/data -R --slot=replication_slot --host=postgres_primary --port=5432
+      do
+      echo 'Waiting for primary to connect...'
+      sleep 1s
+      done
+      echo 'Backup done, starting replica...'
+      chmod 0700 /home/postgres/pgdata/data
+      postgres
+      "
+    depends_on:
+      - postgres_primary
 volumes:
-  pgdata-primary: 
-  grafana-storage:
-  # pgdata:
+  pgdata-primary:
+  pgdata-replica:
